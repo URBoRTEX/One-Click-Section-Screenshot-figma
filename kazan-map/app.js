@@ -44,6 +44,7 @@
   let routeRequestId=0;
   let lastRouteOrigin=null;
   let lastRouteAt=0;
+  let pendingRouteItem=null;
 
   const map=L.map('map',{zoomControl:true,preferCanvas:true}).setView([55.797,49.122],12);
   const tiles=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
@@ -220,8 +221,14 @@
       locateBtn.classList.add('active');
       status.textContent=`GPS: точность ±${Math.round(pos.coords.accuracy)} м`;
       if(followLocation)map.setView(next,Math.max(map.getZoom(),16));
-      if(selectedItem&&shouldRefreshRoute(next))buildRouteTo(selectedItem,true);
-      if(selectedItem)routeMeta.textContent='GPS включён. Нажмите «Маршрут», чтобы построить путь.';
+      if(pendingRouteItem){
+        const pending=pendingRouteItem;
+        pendingRouteItem=null;
+        buildRouteTo(pending);
+      }else{
+        if(selectedItem&&shouldRefreshRoute(next))buildRouteTo(selectedItem,true);
+        if(selectedItem&&!routeLine&&!routeFallbackLine)routeMeta.textContent='GPS включён. Нажмите «Маршрут», чтобы построить путь.';
+      }
     },err=>{
       locateBtn.classList.remove('loading');
       const messages={1:'Доступ к геолокации запрещён',2:'Не удалось определить местоположение',3:'GPS отвечает слишком долго'};
@@ -262,6 +269,7 @@
   async function buildRouteTo(x,silent=false){
     selectPin(x,markers.find(z=>z[0]===x)?.[1],false);
     if(!userLatLng){
+      pendingRouteItem=x;
       startLocation();
       routeMeta.textContent='Разрешите доступ к GPS. Маршрут построится после определения позиции.';
       return;
