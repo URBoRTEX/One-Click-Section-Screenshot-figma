@@ -1,7 +1,8 @@
 (()=>{
   'use strict';
 
-  const FILTER_KEY='kazan-food-filters-v2';
+  const FILTER_KEY='kazan-food-filter-v3';
+  const LEGACY_FILTER_KEY='kazan-food-filters-v2';
   const endpoints=[
     'https://overpass-api.de/api/interpreter',
     'https://overpass.kumi.systems/api/interpreter',
@@ -57,9 +58,10 @@
   let source='';
   let loading=false;
   let pinsVisible=false;
-  let appliedCategories=loadSelection();
-  let draftCategories=new Set(appliedCategories);
+  let appliedCategory=loadSelection();
+  let draftCategory=appliedCategory;
   let loadPromise=null;
+  let loadingBadge=null;
 
   const style=document.createElement('style');
   style.textContent=`
@@ -79,27 +81,32 @@
     .food-secondary button{flex:1;border:0;border-radius:10px;background:#eef2f6;color:#344054;padding:9px 10px;font-size:10px;font-weight:800}
     .food-summary{margin:9px 0 0;padding:8px 10px;border-radius:10px;background:#f8fafc;color:#475467;font-size:10px;line-height:1.4}
     .food-note{margin:8px 0 0;color:#667085;font-size:9px;line-height:1.35}
+    .food-loading-badge{position:fixed;z-index:1700;right:68px;top:126px;display:none;padding:9px 11px;border-radius:11px;background:#f97316;color:#fff;font-size:10px;font-weight:800;box-shadow:0 7px 20px rgba(15,23,42,.18)}
+    .food-loading-badge.show{display:block}
     .food-marker{background:none;border:0}.food-marker i{display:grid;place-items:center;width:31px;height:31px;border-radius:50%;background:#f97316;border:3px solid #fff;box-shadow:0 5px 12px rgba(15,23,42,.3);font-style:normal;font-size:14px}
     .food-popup{min-width:230px}.food-popup h3{margin:0 0 5px;font-size:15px}.food-popup p{margin:4px 0;color:#475467;font-size:11px;line-height:1.35}.food-popup strong{color:#111827}.food-links{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}.food-links a{padding:6px 8px;border-radius:8px;background:#eef2f6;color:#111827;text-decoration:none;font-size:10px;font-weight:800}
-    @media(min-width:800px){.food-panel{left:414px;right:auto;width:410px;top:130px}}
+    @media(min-width:800px){.food-panel{left:414px;right:auto;width:410px;top:130px}.food-loading-badge{left:414px;right:auto;top:130px}}
   `;
   document.head.appendChild(style);
 
   function loadSelection(){
+    const valid=new Set(categories.map(item=>item[0]));
     try{
-      const saved=JSON.parse(localStorage.getItem(FILTER_KEY)||'[]');
-      const valid=new Set(categories.map(item=>item[0]));
-      const values=Array.isArray(saved)?saved.filter(value=>valid.has(value)):[];
-      if(!values.length)return new Set(['all']);
-      if(values.includes('all'))return new Set(['all']);
-      return new Set(values);
-    }catch(_){
-      return new Set(['all']);
-    }
+      const current=JSON.parse(localStorage.getItem(FILTER_KEY)||'null');
+      if(typeof current==='string'&&valid.has(current))return current;
+    }catch(_){}
+    try{
+      const legacy=JSON.parse(localStorage.getItem(LEGACY_FILTER_KEY)||'[]');
+      if(Array.isArray(legacy)){
+        const value=legacy.find(item=>item!=='all'&&valid.has(item))||legacy.find(item=>valid.has(item));
+        if(value)return value;
+      }
+    }catch(_){}
+    return'all';
   }
 
   function saveSelection(){
-    try{localStorage.setItem(FILTER_KEY,JSON.stringify([...appliedCategories]));}catch(_){}
+    try{localStorage.setItem(FILTER_KEY,JSON.stringify(appliedCategory));}catch(_){}
   }
 
   function createUi(){
@@ -110,8 +117,8 @@
       toolButton.className='map-tool';
       toolButton.type='button';
       toolButton.textContent='🍽';
-      toolButton.title='Выбрать кухни';
-      toolButton.setAttribute('aria-label','Выбрать кухни и показать заведения');
+      toolButton.title='Выбрать кухню';
+      toolButton.setAttribute('aria-label','Выбрать кухню и показать заведения');
       tools.appendChild(toolButton);
       toolButton.onclick=openPanel;
     }
@@ -120,63 +127,44 @@
     panel.className='food-panel';
     panel.innerHTML=`
       <div class="food-head">
-        <div><h3>Выберите кухни</h3><p id="foodSubtitle">Можно выбрать несколько вариантов</p></div>
+        <div><h3>Выберите тип кухни</h3><p>После выбора нажмите «Отобразить»</p></div>
         <button class="food-close" type="button" aria-label="Закрыть">×</button>
       </div>
       <div class="food-label">Что показать на карте</div>
       <div class="food-segments" id="foodSegments"></div>
-      <button class="food-apply" id="foodApply" type="button">Показать на карте</button>
+      <button class="food-apply" id="foodApply" type="button">Отобразить</button>
       <div class="food-secondary">
-        <button id="foodSelectAll" type="button">Выбрать все</button>
         <button id="foodHide" type="button">Скрыть пины</button>
-        <button id="foodReload" type="button">Обновить места</button>
       </div>
-      <div class="food-summary" id="foodSummary">Фильтры ещё не применены</div>
-      <p class="food-note">После нажатия «Показать на карте» окно закроется. Повторное нажатие на 🍽 откроет настройки с сохранённым выбором.</p>`;
+      <div class="food-summary" id="foodSummary"></div>
+      <p class="food-note">После нажатия «Отобразить» окно сразу закроется. Пины останутся на карте. Нажмите 🍽 ещё раз, чтобы поменять кухню.</p>`;
     document.body.appendChild(panel);
+
+    loadingBadge=document.createElement('div');
+    loadingBadge.className='food-loading-badge';
+    loadingBadge.textContent='Загружаю заведения…';
+    document.body.appendChild(loadingBadge);
 
     panel.querySelector('.food-close').onclick=closePanel;
     panel.querySelector('#foodApply').onclick=applyFilters;
-    panel.querySelector('#foodSelectAll').onclick=()=>{
-      draftCategories=new Set(['all']);
-      renderSegments();
-      updatePanelSummary();
-    };
     panel.querySelector('#foodHide').onclick=hidePins;
-    panel.querySelector('#foodReload').onclick=async()=>{
-      await loadPlaces(true);
-      renderSegments();
-      updatePanelSummary();
-    };
     renderSegments();
     updatePanelSummary();
   }
 
-  async function openPanel(){
-    draftCategories=new Set(appliedCategories);
+  function openPanel(){
+    draftCategory=appliedCategory;
     panel.classList.add('open');
     renderSegments();
     updatePanelSummary();
-    if(!places.length||needsReload()){
-      loadPlaces(false).then(()=>{
-        renderSegments();
-        updatePanelSummary();
-      });
-    }
   }
 
   function closePanel(){
     panel.classList.remove('open');
   }
 
-  function toggleCategory(key){
-    if(key==='all'){
-      draftCategories=new Set(['all']);
-    }else{
-      draftCategories.delete('all');
-      if(draftCategories.has(key))draftCategories.delete(key);else draftCategories.add(key);
-      if(!draftCategories.size)draftCategories.add('all');
-    }
+  function selectCategory(key){
+    draftCategory=key;
     renderSegments();
     updatePanelSummary();
   }
@@ -189,10 +177,10 @@
       const count=places.filter(place=>key==='all'||place.category===key).length;
       const button=document.createElement('button');
       button.type='button';
-      button.className=`food-segment${draftCategories.has(key)?' selected':''}`;
-      button.textContent=count?`${label} · ${count}`:label;
-      button.setAttribute('aria-pressed',String(draftCategories.has(key)));
-      button.onclick=()=>toggleCategory(key);
+      button.className=`food-segment${draftCategory===key?' selected':''}`;
+      button.textContent=places.length&&count?`${label} · ${count}`:label;
+      button.setAttribute('aria-pressed',String(draftCategory===key));
+      button.onclick=()=>selectCategory(key);
       root.appendChild(button);
     });
   }
@@ -200,33 +188,33 @@
   function updatePanelSummary(){
     if(!panel)return;
     const summary=panel.querySelector('#foodSummary');
-    const apply=panel.querySelector('#foodApply');
-    const selectedLabels=draftCategories.has('all')
-      ? ['Все кухни']
-      : categories.filter(([key])=>draftCategories.has(key)).map(([,label])=>label);
-    const count=filteredPlaces(draftCategories).length;
+    const label=categoryLabel(draftCategory);
+    const count=filteredPlaces(draftCategory).length;
+    summary.textContent=places.length
+      ? `Выбрано: ${label} · найдено ${count}${source?` · ${source}`:''}`
+      : `Выбрано: ${label}. Заведения загрузятся после нажатия «Отобразить».`;
+  }
 
-    if(loading){
-      summary.textContent='Загружаю заведения для текущей области карты…';
-      apply.textContent='Загрузка заведений…';
-      apply.disabled=true;
-      return;
-    }
-
-    summary.textContent=`Выбрано: ${selectedLabels.join(', ')}${places.length?` · найдено ${count}`:''}${source?` · ${source}`:''}`;
-    apply.textContent=places.length?`Показать на карте · ${count}`:'Показать на карте';
-    apply.disabled=false;
+  function setLoading(value){
+    loadingBadge?.classList.toggle('show',value);
+    toolButton?.classList.toggle('loading',value);
+    if(toolButton)toolButton.disabled=value;
   }
 
   async function applyFilters(){
-    if(!places.length||needsReload())await loadPlaces(false);
-    appliedCategories=new Set(draftCategories);
-    if(!appliedCategories.size)appliedCategories.add('all');
+    if(loading)return;
+    appliedCategory=draftCategory||'all';
     saveSelection();
     pinsVisible=true;
-    renderPins();
     toolButton.classList.add('active');
     closePanel();
+    setLoading(true);
+    try{
+      if(!places.length||needsReload())await loadPlaces(false);
+      renderPins();
+    }finally{
+      setLoading(false);
+    }
   }
 
   function hidePins(){
@@ -269,10 +257,6 @@
     if(!force&&!needsReload()&&places.length)return places;
 
     loading=true;
-    updatePanelSummary();
-    const reload=panel?.querySelector('#foodReload');
-    if(reload){reload.disabled=true;reload.textContent='Загрузка…';}
-
     loadPromise=(async()=>{
       const bounds=queryBounds();
       try{
@@ -307,7 +291,6 @@
       }finally{
         loading=false;
         loadPromise=null;
-        if(reload){reload.disabled=false;reload.textContent='Обновить места';}
         renderSegments();
         updatePanelSummary();
         if(pinsVisible)renderPins();
@@ -368,9 +351,9 @@
     return'other';
   }
 
-  function filteredPlaces(selection=appliedCategories){
-    if(selection.has('all'))return places;
-    return places.filter(place=>selection.has(place.category));
+  function filteredPlaces(selection=appliedCategory){
+    if(selection==='all')return places;
+    return places.filter(place=>place.category===selection);
   }
 
   function renderPins(){
@@ -422,7 +405,7 @@
     createUi();
     map.on('moveend',()=>{
       if(pinsVisible&&needsReload()){
-        panel.querySelector('#foodSubtitle').textContent='Область карты изменилась. Откройте 🍽 и нажмите «Показать на карте», чтобы обновить места.';
+        toolButton.title='Карта перемещена — нажмите 🍽, выберите кухню и снова нажмите «Отобразить»';
       }
     });
   }
