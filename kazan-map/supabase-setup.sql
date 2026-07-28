@@ -1,5 +1,5 @@
 -- Kazan trip map: public journal, media, walk tracks and daily health.
--- Run this file once in Supabase Dashboard -> SQL Editor.
+-- Run this file in Supabase Dashboard -> SQL Editor. It is safe to run again.
 
 create extension if not exists pgcrypto;
 
@@ -10,12 +10,15 @@ stable
 security definer
 set search_path = ''
 as $$
-  select lower(coalesce(
-    auth.jwt() -> 'user_metadata' ->> 'user_name',
-    auth.jwt() -> 'user_metadata' ->> 'preferred_username',
-    auth.jwt() -> 'user_metadata' ->> 'user_login',
-    ''
-  )) = 'urbortex';
+  select
+    lower(coalesce(auth.jwt() ->> 'email', '')) = 'opextheskill@gmail.com'
+    or lower(coalesce(
+      auth.jwt() -> 'user_metadata' ->> 'user_name',
+      auth.jwt() -> 'user_metadata' ->> 'preferred_username',
+      auth.jwt() -> 'user_metadata' ->> 'user_login',
+      auth.jwt() -> 'user_metadata' ->> 'login',
+      ''
+    )) = 'urbortex';
 $$;
 
 grant execute on function public.is_urbortex() to anon, authenticated;
@@ -40,8 +43,7 @@ create table if not exists public.place_media (
   created_by uuid references auth.users(id)
 );
 
-create index if not exists place_media_place_id_idx
-  on public.place_media(place_id, created_at);
+create index if not exists place_media_place_id_idx on public.place_media(place_id, created_at);
 
 create table if not exists public.walk_tracks (
   id uuid primary key default gen_random_uuid(),
@@ -55,8 +57,7 @@ create table if not exists public.walk_tracks (
   created_by uuid references auth.users(id)
 );
 
-create index if not exists walk_tracks_day_key_idx
-  on public.walk_tracks(day_key, started_at);
+create index if not exists walk_tracks_day_key_idx on public.walk_tracks(day_key, started_at);
 
 create table if not exists public.daily_health (
   day_key text primary key,
@@ -72,64 +73,30 @@ alter table public.walk_tracks enable row level security;
 alter table public.daily_health enable row level security;
 
 drop policy if exists "Public reads place journal" on public.place_journal;
-create policy "Public reads place journal"
-on public.place_journal for select
-to anon, authenticated
-using (true);
+create policy "Public reads place journal" on public.place_journal for select to anon, authenticated using (true);
 
 drop policy if exists "URBoRTEX writes place journal" on public.place_journal;
-create policy "URBoRTEX writes place journal"
-on public.place_journal for all
-to authenticated
-using (public.is_urbortex())
-with check (public.is_urbortex());
+create policy "URBoRTEX writes place journal" on public.place_journal for all to authenticated using (public.is_urbortex()) with check (public.is_urbortex());
 
 drop policy if exists "Public reads place media" on public.place_media;
-create policy "Public reads place media"
-on public.place_media for select
-to anon, authenticated
-using (true);
+create policy "Public reads place media" on public.place_media for select to anon, authenticated using (true);
 
 drop policy if exists "URBoRTEX writes place media" on public.place_media;
-create policy "URBoRTEX writes place media"
-on public.place_media for all
-to authenticated
-using (public.is_urbortex())
-with check (public.is_urbortex());
+create policy "URBoRTEX writes place media" on public.place_media for all to authenticated using (public.is_urbortex()) with check (public.is_urbortex());
 
 drop policy if exists "Public reads walk tracks" on public.walk_tracks;
-create policy "Public reads walk tracks"
-on public.walk_tracks for select
-to anon, authenticated
-using (true);
+create policy "Public reads walk tracks" on public.walk_tracks for select to anon, authenticated using (true);
 
 drop policy if exists "URBoRTEX writes walk tracks" on public.walk_tracks;
-create policy "URBoRTEX writes walk tracks"
-on public.walk_tracks for all
-to authenticated
-using (public.is_urbortex())
-with check (public.is_urbortex());
+create policy "URBoRTEX writes walk tracks" on public.walk_tracks for all to authenticated using (public.is_urbortex()) with check (public.is_urbortex());
 
 drop policy if exists "Public reads daily health" on public.daily_health;
-create policy "Public reads daily health"
-on public.daily_health for select
-to anon, authenticated
-using (true);
+create policy "Public reads daily health" on public.daily_health for select to anon, authenticated using (true);
 
 drop policy if exists "URBoRTEX writes daily health" on public.daily_health;
-create policy "URBoRTEX writes daily health"
-on public.daily_health for all
-to authenticated
-using (public.is_urbortex())
-with check (public.is_urbortex());
+create policy "URBoRTEX writes daily health" on public.daily_health for all to authenticated using (public.is_urbortex()) with check (public.is_urbortex());
 
-insert into storage.buckets (
-  id,
-  name,
-  public,
-  file_size_limit,
-  allowed_mime_types
-)
+insert into storage.buckets (id,name,public,file_size_limit,allowed_mime_types)
 values (
   'kazan-trip-media',
   'kazan-trip-media',
@@ -143,34 +110,16 @@ on conflict (id) do update set
   allowed_mime_types = excluded.allowed_mime_types;
 
 drop policy if exists "URBoRTEX uploads trip media" on storage.objects;
-create policy "URBoRTEX uploads trip media"
-on storage.objects for insert
-to authenticated
-with check (
-  bucket_id = 'kazan-trip-media'
-  and public.is_urbortex()
-);
+create policy "URBoRTEX uploads trip media" on storage.objects for insert to authenticated
+with check (bucket_id = 'kazan-trip-media' and public.is_urbortex());
 
 drop policy if exists "URBoRTEX updates trip media" on storage.objects;
-create policy "URBoRTEX updates trip media"
-on storage.objects for update
-to authenticated
-using (
-  bucket_id = 'kazan-trip-media'
-  and public.is_urbortex()
-)
-with check (
-  bucket_id = 'kazan-trip-media'
-  and public.is_urbortex()
-);
+create policy "URBoRTEX updates trip media" on storage.objects for update to authenticated
+using (bucket_id = 'kazan-trip-media' and public.is_urbortex())
+with check (bucket_id = 'kazan-trip-media' and public.is_urbortex());
 
 drop policy if exists "URBoRTEX deletes trip media" on storage.objects;
-create policy "URBoRTEX deletes trip media"
-on storage.objects for delete
-to authenticated
-using (
-  bucket_id = 'kazan-trip-media'
-  and public.is_urbortex()
-);
+create policy "URBoRTEX deletes trip media" on storage.objects for delete to authenticated
+using (bucket_id = 'kazan-trip-media' and public.is_urbortex());
 
--- The bucket is public, so direct public URLs can be viewed by anyone.
+-- Bucket is public: anyone with the map link can view published media.
