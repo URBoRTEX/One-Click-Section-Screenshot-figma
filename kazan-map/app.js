@@ -4,6 +4,9 @@
   const tabs=Q('tabs'),sheet=Q('sheet'),list=Q('list'),title=Q('title'),subtitle=Q('subtitle'),locateBtn=Q('locateBtn'),followBtn=Q('followBtn'),toggleBtn=Q('toggle');
   const labels={all:['Все','Все точки и варианты'],d27:['27 июля','Баумана и развлечения'],d28:['28 июля','Кабан и Старо-Татарская слобода'],d29:['29 июля','Голубые озёра и Казанка'],d30:['30 июля','Кремль и набережная'],d31:['31 июля','Парки и арт-пространства'],backup:['Дождь','Океанариум'],yosh:['Йошкар-Ола','Отдельный день']},order=['all','d27','d28','d29','d30','d31','backup','yosh'];
   const mobile=matchMedia('(max-width:799px)').matches;
+  const uiStyle=document.createElement('style');
+  uiStyle.textContent='.route-card{display:none!important}.sheet.has-selection{--peek:126px!important}.inline-route-info{margin-top:8px;padding:8px 10px;border-radius:10px;background:#eff6ff;color:#1d4ed8;font-size:12px;font-weight:700;line-height:1.3}.active-route-stop{box-shadow:inset 0 0 0 1px #bfdbfe}.mini-clear{border:0;border-radius:8px;background:#e8edf3;color:#111827;padding:7px 10px;font-size:11px;font-weight:800}.mini-route:disabled{opacity:.55}';
+  document.head.appendChild(uiStyle);
   let active='d27',selectedItem=null,selectedMarker=null,userLatLng=null,userMarker=null,accuracyCircle=null,watchId=null,followLocation=true,routeLine=null,routeFallbackLine=null,routeRequestId=0,lastRouteOrigin=null,lastRouteAt=0,pendingRouteItem=null,statusTimer=null,activeRouteItem=null,routeSummary='',routeBusy=false;
   function setStatus(text,sticky=false){status.textContent=text;status.classList.remove('hide');clearTimeout(statusTimer);if(!sticky)statusTimer=setTimeout(()=>status.classList.add('hide'),2600)}
   function setSheetOpen(open){sheet.classList.toggle('open',open);toggleBtn.textContent=open?'Свернуть':'Открыть';toggleBtn.setAttribute('aria-expanded',String(open));if(open)setTimeout(()=>map.invalidateSize(),80)}
