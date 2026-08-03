@@ -1,0 +1,45 @@
+name: Temporary ASR Bundle
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-asr-bundle:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential
+
+      - name: Build whisper.cpp CLI
+        run: |
+          set -euxo pipefail
+          git clone --depth 1 --branch v1.7.5 https://github.com/ggml-org/whisper.cpp.git /tmp/whisper.cpp
+          cmake -S /tmp/whisper.cpp -B /tmp/whisper.cpp/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DGGML_NATIVE=OFF \
+            -DWHISPER_BUILD_TESTS=OFF \
+            -DWHISPER_BUILD_EXAMPLES=ON
+          cmake --build /tmp/whisper.cpp/build --config Release -j2
+
+      - name: Download multilingual model
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/asr-bundle
+          curl -L --fail --retry 5 \
+            https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin \
+            -o /tmp/asr-bundle/ggml-base-q5_1.bin
+          cp /tmp/whisper.cpp/build/bin/whisper-cli /tmp/asr-bundle/whisper-cli
+          chmod +x /tmp/asr-bundle/whisper-cli
+          sha256sum /tmp/asr-bundle/* > /tmp/asr-bundle/SHA256SUMS.txt
+
+      - name: Upload ASR bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: asr-bundle
+          path: /tmp/asr-bundle
+          retention-days: 1
+          compression-level: 0
